@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>ObjectLoop</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+body {
+  background: #141414;
+  color: #eee;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh; /* dynamic viewport height for mobile */
+  overflow: hidden;
+}
+
+/* ── TOP BAR ── */
+#topbar {
+  background: #0e0e0e;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  padding-top: max(10px, env(safe-area-inset-top));
+}
+#topbar h1 { font-size: 17px; font-weight: 700; color: #6ee8a8; flex: 1; letter-spacing: -0.3px; }
+#topbar .imgcount { font-size: 11px; color: #555; font-family: monospace; }
+
+/* Upload button — standard label+input, works in real browser */
+.upbtn {
+  background: #6ee8a8;
+  color: #0e0e0e;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-block;
+  user-select: none;
+  white-space: nowrap;
+}
+.upbtn input { display: none; }
+
+/* ── CANVAS AREA ── */
+#canvasWrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c1c1c;
+  min-height: 0;
+}
+
+#mainCanvas {
+  display: block;
+  touch-action: none;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* Empty state */
+#emptyState {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 30px;
+}
+#emptyState.hidden { display: none; }
+#emptyState .bigicon { font-size: 56px; opacity: 0.25; line-height: 1; }
+#emptyState h2 { font-size: 20px; font-weight: 600; color: #666; }
+#emptyState p  { font-size: 14px; color: #444; line-height: 1.6; }
+.upbtn-big {
+  background: #6ee8a8; color: #0e0e0e;
+  font-weight: 700; font-size: 16px;
+  padding: 14px 32px; border-radius: 10px;
+  cursor: pointer; display: inline-block;
+  margin-top: 4px; user-select: none;
+}
+.upbtn-big input { display: none; }
+
+/* Scan animation */
+#scanLine {
+  display: none;
+  position: absolute; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, transparent, #6ee8a8, transparent);
+  pointer-events: none;
+  animation: scanAnim 0.9s linear infinite;
+}
+#scanLine.on { display: block; }
+@keyframes scanAnim { 0%{top:0%} 100%{top:100%} }
+
+/* ── BOTTOM PANEL ── */
+#bottomPanel {
+  background: #0e0e0e;
+  border-top: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+#tabs {
+  display: flex;
+  border-bottom: 1px solid #222;
+}
+.tab {
+  flex: 1; padding: 10px 4px;
+  text-align: center; font-size: 12px;
+  color: #555; cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s;
+}
+.tab.active { color: #6ee8a8; border-bottom-color: #6ee8a8; }
+
+.tabcontent { display: none; padding: 12px 14px; }
+.tabcontent.active { display: block; }
+
+/* Status message */
+#msgBox {
+  padding: 10px 13px; border-radius: 8px;
+  font-size: 13px; line-height: 1.6;
+  border-left: 3px solid #333;
+  background: #1c1c1c; color: #888;
+  margin-bottom: 11px;
+}
+#msgBox.info { border-color: #3a78c9; color: #7ab4f5; background: #0c1d30; }
+#msgBox.ok   { border-color: #3a9a60; color: #6ee8a8; background: #0c2018; }
+#msgBox.warn { border-color: #c9783a; color: #f5b86e; background: #2a1808; }
+
+/* Action buttons row */
+#btnRow { display: flex; gap: 8px; }
+.btn {
+  flex: 1; padding: 12px 8px; border-radius: 8px;
+  border: none; font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: opacity 0.15s;
+}
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn:active:not(:disabled) { opacity: 0.75; }
+.b-go   { background: #6ee8a8; color: #0e0e0e; }
+.b-gray { background: #242424; color: #888; border: 1px solid #333; }
+
+/* Score tab */
+#scorePad { display: none; }
+#scorePad.on { display: block; }
+.srow { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+#scoreNum {
+  font-size: 40px; font-weight: 700; min-width: 48px;
+  color: #6ee8a8; line-height: 1; transition: color 0.2s;
+}
+#scoreNum.mid { color: #f5d86e; }
+#scoreNum.lo  { color: #f56e6e; }
+input[type=range] {
+  flex: 1; -webkit-appearance: none;
+  height: 6px; border-radius: 3px; background: #2a2a2a; outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 28px; height: 28px;
+  border-radius: 50%; background: #6ee8a8;
+  border: 3px solid #0e0e0e;
+  box-shadow: 0 0 0 1px #6ee8a8;
+}
+#scoreHint { font-size: 12px; color: #555; margin-bottom: 11px; }
+#adjHint {
+  font-size: 12px; color: #7ab4f5; background: #0c1d30;
+  border-radius: 6px; padding: 9px 11px; margin-bottom: 11px;
+  display: none; line-height: 1.6;
+}
+#adjHint.on { display: block; }
+#scoreWait { color: #444; font-size: 13px; }
+#scoreBtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.b-submit { flex:1; min-width:100px; padding:12px 8px; border-radius:8px; border:none; font-size:14px; font-weight:700; cursor:pointer; background:#1a4a30; color:#6ee8a8; }
+.b-nomore { flex:1; min-width:100px; padding:12px 8px; border-radius:8px; border:none; font-size:14px; font-weight:700; cursor:pointer; background:#3a1808; color:#f5b86e; }
+.b-next   { flex:1; min-width:100px; padding:12px 8px; border-radius:8px; border:none; font-size:14px; font-weight:700; cursor:pointer; background:#0c1d30; color:#7ab4f5; display:none; }
+.btn-act:active { opacity: 0.75; }
+
+/* Tools tab */
+.toolRow { display: flex; gap: 8px; margin-bottom: 11px; }
+.toolBtn {
+  flex: 1; padding: 12px;
+  border-radius: 8px; border: 1px solid #333;
+  background: #1c1c1c; color: #666;
+  font-size: 14px; cursor: pointer; text-align: center;
+  transition: all 0.15s;
+}
+.toolBtn.on { border-color: #6ee8a8; color: #6ee8a8; background: rgba(110,232,168,0.07); }
+.toolNote { font-size: 12px; color: #444; line-height: 1.7; }
+.toolNote b { color: #666; }
+
+/* Images tab */
+#imgStrip {
+  display: flex; gap: 8px; overflow-x: auto;
+  padding: 4px 0; min-height: 64px; align-items: center;
+}
+.ithumb {
+  width: 58px; height: 58px; border-radius: 8px;
+  object-fit: cover; border: 2px solid #333;
+  flex-shrink: 0; opacity: 0.55; cursor: pointer;
+  transition: all 0.15s;
+}
+.ithumb.cur  { border-color: #6ee8a8; opacity: 1; }
+.ithumb.done { border-color: #3a9a60; opacity: 0.75; }
+#stripEmpty { color: #444; font-size: 13px; }
+
+/* Log tab */
+.logwrap { max-height: 120px; overflow-y: auto; }
+.lentry { display: flex; gap: 8px; padding: 7px 0; border-bottom: 1px solid #1e1e1e; font-size: 12px; }
+.lnum { color: #444; min-width: 22px; font-family: monospace; font-size: 10px; padding-top: 1px; }
+.ltxt { flex: 1; color: #777; line-height: 1.5; }
+.lbadge { font-family: monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; align-self: flex-start; margin-top: 1px; }
+.bhi  { background: #0c2018; color: #6ee8a8; }
+.bmid { background: #1e1808; color: #f5d86e; }
+.blo  { background: #1e0808; color: #f56e6e; }
+#logEmpty { color: #444; font-size: 13px; }
+
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <h1>ObjectLoop</h1>
+  <span class="imgcount" id="imgCount"></span>
+  <label class="upbtn">
+    + Add Images
+    <input type="file" id="fileInput" multiple accept="image/*" onchange="handleFiles(this.files); this.value='';">
+  </label>
+</div>
+
+<!-- CANVAS -->
+<div id="canvasWrap">
+  <div id="emptyState">
+    <div class="bigicon">🖼</div>
+    <h2>No images loaded</h2>
+    <p>Tap the button to pick photos<br>from your gallery</p>
+    <label class="upbtn-big">
+      Choose Images
+      <input type="file" id="fileInput2" multiple accept="image/*" onchange="handleFiles(this.files); this.value='';">
+    </label>
+  </div>
+  <canvas id="mainCanvas"></canvas>
+  <div id="scanLine"></div>
+</div>
+
+<!-- BOTTOM PANEL -->
+<div id="bottomPanel">
+  <div id="tabs">
+    <div class="tab active" onclick="showTab('status')">Status</div>
+    <div class="tab" onclick="showTab('score')">Score</div>
+    <div class="tab" onclick="showTab('tools')">Tools</div>
+    <div class="tab" onclick="showTab('images')">Images</div>
+    <div class="tab" onclick="showTab('log')">Log</div>
+  </div>
+
+  <!-- STATUS -->
+  <div class="tabcontent active" id="tab-status">
+    <div id="msgBox">Load images to begin.</div>
+    <div id="btnRow">
+      <button class="btn b-go"   id="bStart" onclick="confirmSel()" disabled>Start Searching →</button>
+      <button class="btn b-gray" id="bClear" onclick="clearSel()"  disabled>Clear</button>
+    </div>
+  </div>
+
+  <!-- SCORE -->
+  <div class="tabcontent" id="tab-score">
+    <div id="scorePad">
+      <div class="srow">
+        <div id="scoreNum">5</div>
+        <input type="range" id="scoreSlider" min="1" max="10" value="5">
+      </div>
+      <div id="scoreHint">— moderate match</div>
+      <div id="adjHint">Go to Tools → Adjust, then drag the blue box corners to fix the boundary.</div>
+      <div id="scoreBtns">
+        <button class="b-submit btn-act" id="bSubmit" onclick="submitScore()">Submit Score</button>
+        <button class="b-nomore btn-act" id="bNoMore" onclick="noMore()">No More Here</button>
+        <button class="b-next   btn-act" id="bNextImg" onclick="nextImg()">Next Image →</button>
+      </div>
+    </div>
+    <div id="scoreWait">Draw a selection on the image first.</div>
+  </div>
+
+  <!-- TOOLS -->
+  <div class="tabcontent" id="tab-tools">
+    <div class="toolRow">
+      <div class="toolBtn on" id="tDraw"   onclick="setMode('draw')">✏ Draw</div>
+      <div class="toolBtn"    id="tAdjust" onclick="setMode('adjust')">⇔ Adjust</div>
+    </div>
+    <div class="toolNote">
+      <b>Draw:</b> Drag on the image to box your target object.<br>
+      <b>Adjust:</b> After AI finds a match, drag the blue box corners to correct it.
+    </div>
+  </div>
+
+  <!-- IMAGES -->
+  <div class="tabcontent" id="tab-images">
+    <div id="imgStrip">
+      <span id="stripEmpty">No images loaded yet.</span>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="tabcontent" id="tab-log">
+    <div class="logwrap" id="logWrap"></div>
+    <div id="logEmpty">No detections yet.</div>
+  </div>
+</div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────────────────
+var imgs = [], curIdx = -1, mode = 'draw', phase = 'idle';
+var canvas = document.getElementById('mainCanvas');
+var ctx = canvas.getContext('2d');
+var curImg = null, scale = 1;
+var userBox = null, aiBox = null, adjBox = null;
+var template = null, reviewed = [];
+var drawing = false, drawStart = null, dragState = null, logN = 0;
+
+// ── FILE HANDLING ─────────────────────────────────────────────────────────────
+function handleFiles(files) {
+  if (!files || !files.length) return;
+  Array.from(files).forEach(function(file) {
+    if (!file.type.match('image.*')) return;
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() {
+        var idx = imgs.length;
+        imgs.push({ img: img, done: false });
+        addThumb(idx, ev.target.result);
+        if (curIdx === -1) loadImg(0);
+        updateCount();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function addThumb(idx, src) {
+  document.getElementById('stripEmpty').style.display = 'none';
+  var t = document.createElement('img');
+  t.className = 'ithumb'; t.src = src; t.id = 'th_' + idx;
+  t.onclick = (function(i) { return function() { loadImg(i); }; })(idx);
+  document.getElementById('imgStrip').appendChild(t);
+}
+
+// ── LOAD IMAGE ────────────────────────────────────────────────────────────────
+function loadImg(idx) {
+  if (idx < 0 || idx >= imgs.length) return;
+  curIdx = idx; curImg = imgs[idx].img;
+  userBox = null; aiBox = null; adjBox = null;
+  reviewed = []; template = null;
+  phase = 'idle'; drawing = false; dragState = null;
+
+  document.querySelectorAll('.ithumb').forEach(function(t, i) { t.classList.toggle('cur', i === idx); });
+  document.getElementById('emptyState').classList.add('hidden');
+
+  sizeCanvas(); redraw(); setMode('draw');
+  setMsg('Draw a box around the object you want to find more of.', '');
+  document.getElementById('bStart').disabled = true;
+  document.getElementById('bClear').disabled = false;
+  hideScoreUI(); showTab('status'); updateCount();
+}
+
+function sizeCanvas() {
+  if (!curImg) return;
+  var wrap = canvas.parentElement;
+  scale = Math.min(1, wrap.clientWidth / curImg.naturalWidth, wrap.clientHeight / curImg.naturalHeight);
+  canvas.width  = Math.round(curImg.naturalWidth  * scale);
+  canvas.height = Math.round(curImg.naturalHeight * scale);
+}
+
+// ── DRAWING ───────────────────────────────────────────────────────────────────
+function redraw() {
+  if (!curImg) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(curImg, 0, 0, canvas.width, canvas.height);
+
+  if (phase === 'scoring' || phase === 'noneFound') {
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Reviewed regions (faint)
+  reviewed.forEach(function(r) {
+    var c = tC(r);
+    ctx.save(); ctx.strokeStyle = 'rgba(150,150,150,0.25)';
+    ctx.lineWidth = 1; ctx.setLineDash([3, 5]);
+    ctx.strokeRect(c.x, c.y, c.w, c.h); ctx.restore();
+  });
+
+  // User box
+  if (userBox) {
+    var u = tC(userBox);
+    ctx.fillStyle = 'rgba(230,120,50,0.12)';
+    ctx.strokeStyle = '#e07830'; ctx.lineWidth = 2.5; ctx.setLineDash([]);
+    ctx.fillRect(u.x, u.y, u.w, u.h); ctx.strokeRect(u.x, u.y, u.w, u.h);
+    drawLabel(u.x, u.y, 'TARGET', '#e07830');
+  }
+
+  // AI box (dashed green)
+  if (aiBox && !adjBox) {
+    var a = tC(aiBox);
+    ctx.fillStyle = 'rgba(50,200,100,0.10)';
+    ctx.strokeStyle = '#3acc66'; ctx.lineWidth = 2.5; ctx.setLineDash([8, 4]);
+    ctx.fillRect(a.x, a.y, a.w, a.h); ctx.strokeRect(a.x, a.y, a.w, a.h);
+    ctx.setLineDash([]);
+    drawLabel(a.x, a.y + a.h, 'AI MATCH', '#3acc66');
+  }
+
+  // Adjusted box (solid blue)
+  if (adjBox) {
+    var j = tC(adjBox);
+    ctx.fillStyle = 'rgba(60,140,255,0.10)';
+    ctx.strokeStyle = '#3c8cff'; ctx.lineWidth = 2.5; ctx.setLineDash([]);
+    ctx.fillRect(j.x, j.y, j.w, j.h); ctx.strokeRect(j.x, j.y, j.w, j.h);
+    drawHandles(j);
+    drawLabel(j.x, j.y + j.h, 'ADJUSTED', '#3c8cff');
+  }
+}
+
+function drawLabel(x, y, txt, col) {
+  ctx.font = 'bold 11px monospace'; ctx.setLineDash([]);
+  var tw = ctx.measureText(txt).width + 8;
+  var lx = Math.max(0, Math.min(canvas.width - tw, x));
+  var ly = y < 20 ? y + 18 : y - 4;
+  ctx.fillStyle = col; ctx.fillRect(lx, ly - 12, tw, 15);
+  ctx.fillStyle = '#fff'; ctx.fillText(txt, lx + 4, ly);
+}
+
+function drawHandles(b) {
+  getHandles(b).forEach(function(h) {
+    ctx.fillStyle = '#3c8cff'; ctx.fillRect(h.x - 8, h.y - 8, 16, 16);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.setLineDash([]);
+    ctx.strokeRect(h.x - 8, h.y - 8, 16, 16);
+  });
+}
+
+function getHandles(b) {
+  return [
+    {x:b.x,        y:b.y,        p:'tl'}, {x:b.x+b.w/2,  y:b.y,        p:'tc'}, {x:b.x+b.w,    y:b.y,        p:'tr'},
+    {x:b.x+b.w,    y:b.y+b.h/2, p:'mr'}, {x:b.x+b.w,    y:b.y+b.h,    p:'br'},
+    {x:b.x+b.w/2,  y:b.y+b.h,   p:'bc'}, {x:b.x,        y:b.y+b.h,    p:'bl'}, {x:b.x,        y:b.y+b.h/2,  p:'ml'}
+  ];
+}
+
+function tC(r) { return { x: r.x*scale, y: r.y*scale, w: r.w*scale, h: r.h*scale }; }
+function tI(r) { return { x: r.x/scale, y: r.y/scale, w: r.w/scale, h: r.h/scale }; }
+
+function cpt(e) {
+  var rect = canvas.getBoundingClientRect();
+  var src  = e.touches ? e.touches[0] : e;
+  return {
+    x: Math.max(0, Math.min(canvas.width,  src.clientX - rect.left)),
+    y: Math.max(0, Math.min(canvas.height, src.clientY - rect.top))
+  };
+}
+
+// ── TOUCH / MOUSE EVENTS ──────────────────────────────────────────────────────
+canvas.addEventListener('mousedown',  onDown);
+canvas.addEventListener('mousemove',  onMove);
+canvas.addEventListener('mouseup',    onUp);
+canvas.addEventListener('touchstart', function(e) { e.preventDefault(); onDown(e); }, { passive: false });
+canvas.addEventListener('touchmove',  function(e) { e.preventDefault(); onMove(e); }, { passive: false });
+canvas.addEventListener('touchend',   function(e) { e.preventDefault(); onUp(e);   }, { passive: false });
+
+function onDown(e) {
+  if (!curImg) return;
+  var pt = cpt(e);
+
+  if (mode === 'draw' && phase === 'idle') {
+    drawing = true; drawStart = pt; return;
+  }
+
+  if (mode === 'adjust' && (phase === 'scoring' || phase === 'noneFound')) {
+    if (!adjBox && aiBox) adjBox = { x:aiBox.x, y:aiBox.y, w:aiBox.w, h:aiBox.h };
+    if (!adjBox) return;
+    var cb = tC(adjBox);
+    var hh = getHandles(cb);
+    for (var i = 0; i < hh.length; i++) {
+      if (Math.abs(pt.x - hh[i].x) < 14 && Math.abs(pt.y - hh[i].y) < 14) {
+        dragState = { type:'handle', p:hh[i].p, sp:pt, ob:{x:cb.x,y:cb.y,w:cb.w,h:cb.h} };
+        return;
+      }
+    }
+    if (pt.x > cb.x && pt.x < cb.x+cb.w && pt.y > cb.y && pt.y < cb.y+cb.h) {
+      dragState = { type:'move', sp:pt, ob:{x:cb.x,y:cb.y,w:cb.w,h:cb.h} };
+    }
+  }
+}
+
+function onMove(e) {
+  if (!curImg) return;
+  var pt = cpt(e);
+
+  if (drawing) {
+    var x = Math.min(pt.x, drawStart.x), y = Math.min(pt.y, drawStart.y);
+    userBox = tI({ x, y, w: Math.abs(pt.x - drawStart.x), h: Math.abs(pt.y - drawStart.y) });
+    redraw(); return;
+  }
+
+  if (dragState) {
+    var ob = dragState.ob, dx = pt.x - dragState.sp.x, dy = pt.y - dragState.sp.y;
+    var nb = { x:ob.x, y:ob.y, w:ob.w, h:ob.h };
+    if (dragState.type === 'move') { nb.x += dx; nb.y += dy; }
+    else {
+      var p = dragState.p;
+      if (p==='tl'||p==='ml'||p==='bl') { nb.x += dx; nb.w = Math.max(20, nb.w - dx); }
+      if (p==='tr'||p==='mr'||p==='br') { nb.w = Math.max(20, ob.w + dx); }
+      if (p==='tl'||p==='tc'||p==='tr') { nb.y += dy; nb.h = Math.max(20, nb.h - dy); }
+      if (p==='bl'||p==='bc'||p==='br') { nb.h = Math.max(20, ob.h + dy); }
+    }
+    nb.x = Math.max(0, Math.min(canvas.width  - nb.w, nb.x));
+    nb.y = Math.max(0, Math.min(canvas.height - nb.h, nb.y));
+    adjBox = tI(nb); redraw();
+  }
+}
+
+function onUp(e) {
+  if (drawing) {
+    drawing = false;
+    if (userBox && userBox.w > 8 && userBox.h > 8) {
+      phase = 'selected';
+      document.getElementById('bStart').disabled = false;
+      setMsg('Selection ready. Tap "Start Searching →" to find similar objects.', 'info');
+    } else { userBox = null; }
+    redraw();
+  }
+  if (dragState) {
+    dragState = null;
+    document.getElementById('adjHint').classList.add('on');
+    redraw();
+  }
+}
+
+// ── TEMPLATE EXTRACTION ───────────────────────────────────────────────────────
+function mkOC() {
+  var oc = document.createElement('canvas');
+  oc.width = curImg.naturalWidth; oc.height = curImg.naturalHeight;
+  oc.getContext('2d').drawImage(curImg, 0, 0);
+  return oc;
+}
+
+function extractTmpl(box) {
+  var oc = mkOC(), c = oc.getContext('2d');
+  var x = Math.max(0, Math.round(box.x)), y = Math.max(0, Math.round(box.y));
+  var w = Math.min(oc.width  - x, Math.max(1, Math.round(box.w)));
+  var h = Math.min(oc.height - y, Math.max(1, Math.round(box.h)));
+  return calcFeat(c.getImageData(x, y, w, h).data, w, h);
+}
+
+function calcFeat(d, w, h) {
+  var hist = new Float32Array(512), n = w * h, br = 0, gray = [];
+  for (var i = 0; i < d.length; i += 4) {
+    hist[Math.floor(d[i]/32)*64 + Math.floor(d[i+1]/32)*8 + Math.floor(d[i+2]/32)]++;
+    var g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+    br += g / 255; gray.push(g);
+  }
+  for (var j = 0; j < 512; j++) hist[j] /= n;
+  var ed = 0, es = 0, st = Math.max(1, Math.floor(Math.min(w, h) / 16));
+  for (var py = st; py < h - st; py += st) {
+    for (var px = st; px < w - st; px += st) {
+      var gx = gray[py*w + (px+st)] - gray[py*w + (px-st)];
+      var gy = gray[(py+st)*w + px] - gray[(py-st)*w + px];
+      if (Math.sqrt(gx*gx + gy*gy) > 18) ed++;
+      es++;
+    }
+  }
+  return { hist:hist, br:br/n, ed:es?ed/es:0, ar:w/h, tw:w, th:h };
+}
+
+function blendTmpl(a, b, w) {
+  if (!a) return b; if (!b) return a;
+  var h = new Float32Array(512);
+  for (var i = 0; i < 512; i++) h[i] = a.hist[i]*(1-w) + b.hist[i]*w;
+  return { hist:h, br:a.br*(1-w)+b.br*w, ed:a.ed*(1-w)+b.ed*w, ar:a.ar*(1-w)+b.ar*w, tw:a.tw*(1-w)+b.tw*w, th:a.th*(1-w)+b.th*w };
+}
+
+function simScore(t, c) {
+  var hi = 0; for (var i = 0; i < 512; i++) hi += Math.min(t.hist[i], c.hist[i]);
+  return hi*0.55 + (1-Math.abs(t.br-c.br))*0.20 + (1-Math.min(1, Math.abs(t.ed-c.ed)*3))*0.15 + (Math.min(t.ar,c.ar)/Math.max(t.ar,c.ar))*0.10;
+}
+
+function overlaps(box) {
+  for (var i = 0; i < reviewed.length; i++) {
+    var r = reviewed[i];
+    var ox = Math.max(0, Math.min(box.x+box.w, r.x+r.w) - Math.max(box.x, r.x));
+    var oy = Math.max(0, Math.min(box.y+box.h, r.y+r.h) - Math.max(box.y, r.y));
+    if (ox*oy / (box.w*box.h) > 0.35) return true;
+  }
+  return false;
+}
+
+// ── DETECTION (sliding window) ────────────────────────────────────────────────
+function findNext() {
+  if (!template || !curImg) return null;
+  var IW = curImg.naturalWidth, IH = curImg.naturalHeight;
+  var tw = Math.round(template.tw), th = Math.round(template.th);
+  var step = Math.max(6, Math.round(Math.min(tw, th) * 0.22));
+  var best = -1, bestBox = null;
+  var full = mkOC().getContext('2d').getImageData(0, 0, IW, IH);
+
+  [1.0, 0.85, 1.15, 0.70, 1.30].forEach(function(s) {
+    var sw = Math.round(tw*s), sh = Math.round(th*s);
+    if (sw < 8 || sh < 8 || sw > IW || sh > IH) return;
+    for (var y = 0; y <= IH-sh; y += step) {
+      for (var x = 0; x <= IW-sw; x += step) {
+        var box = { x:x, y:y, w:sw, h:sh };
+        if (overlaps(box)) continue;
+        var c = fastRegion(full.data, IW, x, y, sw, sh);
+        if (!c) continue;
+        var sc = simScore(template, c);
+        if (sc > best) { best = sc; bestBox = { x:x, y:y, w:sw, h:sh }; }
+      }
+    }
+  });
+  return (best > 0.36) ? bestBox : null;
+}
+
+function fastRegion(d, IW, x, y, w, h) {
+  var hist = new Float32Array(512), n = 0, br = 0, gray = [];
+  var st = Math.max(1, Math.floor(Math.min(w, h) / 18));
+  for (var py = 0; py < h; py += st) {
+    for (var px = 0; px < w; px += st) {
+      var i = ((y+py)*IW + (x+px)) * 4;
+      hist[Math.floor(d[i]/32)*64 + Math.floor(d[i+1]/32)*8 + Math.floor(d[i+2]/32)]++;
+      var g = d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114;
+      gray.push(g); br += g/255; n++;
+    }
+  }
+  if (!n) return null;
+  for (var j = 0; j < 512; j++) hist[j] /= n;
+  var ed = 0, es = 0, gw = Math.ceil(w/st);
+  for (var py = 1; py < Math.ceil(h/st)-1; py++) {
+    for (var px = 1; px < gw-1; px++) {
+      var gx = gray[py*gw+(px+1)] - gray[py*gw+(px-1)];
+      var gy = gray[(py+1)*gw+px] - gray[(py-1)*gw+px];
+      if (Math.sqrt(gx*gx+gy*gy) > 18) ed++; es++;
+    }
+  }
+  return { hist:hist, br:br/n, ed:es?ed/es:0, ar:w/h, tw:w, th:h };
+}
+
+// ── WORKFLOW ──────────────────────────────────────────────────────────────────
+function confirmSel() {
+  if (!userBox) return;
+  template = extractTmpl(userBox);
+  reviewed.push({ x:userBox.x, y:userBox.y, w:userBox.w, h:userBox.h });
+  document.getElementById('bStart').disabled = true;
+  runSearch();
+}
+
+function runSearch() {
+  phase = 'searching';
+  setMsg('Scanning image for similar regions…', 'info');
+  document.getElementById('scanLine').classList.add('on');
+
+  setTimeout(function() {
+    document.getElementById('scanLine').classList.remove('on');
+    aiBox = findNext(); adjBox = null;
+
+    if (!aiBox) {
+      phase = 'noneFound';
+      setMsg('No similar object found. Correct the area or tap "No More Here".', 'warn');
+      showScoreUI(false);
+      addLog('No match found in remaining area.', null);
+    } else {
+      phase = 'scoring';
+      setMsg('Candidate found! Score it below, or use Tools → Adjust to fix the box first.', 'ok');
+      showScoreUI(true);
+    }
+    redraw(); showTab('score');
+  }, 700);
+}
+
+function submitScore() {
+  var sc = parseInt(document.getElementById('scoreSlider').value);
+  var box = adjBox || aiBox;
+  addLog('Match scored ' + sc + '/10', sc);
+  reviewed.push({ x:box.x, y:box.y, w:box.w, h:box.h });
+
+  // Blend template based on score
+  var w = sc >= 8 ? 0.4 : sc >= 5 ? 0.2 : 0;
+  if (w > 0 && adjBox) template = blendTmpl(template, extractTmpl(adjBox), w);
+
+  aiBox = null; adjBox = null;
+  document.getElementById('adjHint').classList.remove('on');
+  runSearch();
+}
+
+function noMore() {
+  if (imgs[curIdx]) imgs[curIdx].done = true;
+  var th = document.getElementById('th_' + curIdx);
+  if (th) { th.classList.remove('cur'); th.classList.add('done'); }
+  phase = 'done'; aiBox = null; adjBox = null;
+  hideScoreUI();
+  setMsg('Image complete! Load the next image when ready.', 'ok');
+  addLog('Image marked complete by user.', null);
+  redraw(); updateCount();
+  document.getElementById('bNextImg').style.display = (curIdx < imgs.length-1) ? 'flex' : 'none';
+  document.getElementById('scorePad').classList.add('on');
+  document.getElementById('scoreWait').style.display = 'none';
+  showTab('status');
+}
+
+function nextImg() {
+  if (curIdx < imgs.length - 1) loadImg(curIdx + 1);
+}
+
+// ── UI HELPERS ────────────────────────────────────────────────────────────────
+function setMode(m) {
+  mode = m;
+  document.getElementById('tDraw').classList.toggle('on',   m === 'draw');
+  document.getElementById('tAdjust').classList.toggle('on', m === 'adjust');
+}
+
+function clearSel() {
+  userBox = null; aiBox = null; adjBox = null;
+  phase = 'idle'; template = null; reviewed = [];
+  hideScoreUI(); setMode('draw');
+  setMsg('Draw a box around the object you want to find more of.', '');
+  document.getElementById('bStart').disabled = true;
+  redraw();
+}
+
+function setMsg(txt, type) {
+  var b = document.getElementById('msgBox'); b.textContent = txt;
+  var s = { info:{bg:'#0c1d30',bl:'#3a78c9',co:'#7ab4f5'}, ok:{bg:'#0c2018',bl:'#3a9a60',co:'#6ee8a8'}, warn:{bg:'#2a1808',bl:'#c9783a',co:'#f5b86e'} };
+  var st = s[type] || { bg:'#1c1c1c', bl:'#333', co:'#888' };
+  b.style.background = st.bg; b.style.borderLeftColor = st.bl; b.style.color = st.co;
+}
+
+function showScoreUI(hasMatch) {
+  document.getElementById('scorePad').classList.add('on');
+  document.getElementById('scoreWait').style.display = 'none';
+  document.getElementById('bSubmit').style.display  = hasMatch ? 'block' : 'none';
+  document.getElementById('bNoMore').style.display  = 'block';
+  document.getElementById('bNextImg').style.display = 'none';
+  if (hasMatch) document.getElementById('adjHint').classList.add('on');
+  document.getElementById('scoreSlider').value = 5; scoreChange(5);
+}
+
+function hideScoreUI() {
+  document.getElementById('scorePad').classList.remove('on');
+  document.getElementById('scoreWait').style.display = 'block';
+  document.getElementById('adjHint').classList.remove('on');
+}
+
+document.getElementById('scoreSlider').addEventListener('input', function() { scoreChange(parseInt(this.value)); });
+function scoreChange(v) {
+  var n = document.getElementById('scoreNum');
+  n.textContent = v; n.className = (v >= 8 ? '' : v >= 5 ? 'mid' : 'lo');
+  var h = {1:'✗ completely wrong',2:'✗ very poor',3:'✗ poor',4:'△ below average',5:'△ moderate',6:'△ decent',7:'✓ good',8:'✓ strong',9:'✓ great',10:'✓ perfect'};
+  document.getElementById('scoreHint').textContent = h[v] || '';
+}
+
+function addLog(txt, sc) {
+  logN++;
+  document.getElementById('logEmpty').style.display = 'none';
+  var wrap = document.getElementById('logWrap');
+  var d = document.createElement('div'); d.className = 'lentry';
+  var badge = sc !== null ? '<span class="lbadge ' + (sc>=8?'bhi':sc>=5?'bmid':'blo') + '">' + sc + '/10</span>' : '';
+  d.innerHTML = '<span class="lnum">' + logN + '</span><span class="ltxt">' + txt + '</span>' + badge;
+  wrap.appendChild(d); wrap.scrollTop = wrap.scrollHeight;
+}
+
+function showTab(name) {
+  var names = ['status','score','tools','images','log'];
+  document.querySelectorAll('.tab').forEach(function(t, i) { t.classList.toggle('active', names[i] === name); });
+  document.querySelectorAll('.tabcontent').forEach(function(c) { c.classList.toggle('active', c.id === 'tab-' + name); });
+}
+
+function updateCount() {
+  var done = imgs.filter(function(im) { return im.done; }).length;
+  document.getElementById('imgCount').textContent = imgs.length ? (curIdx+1) + '/' + imgs.length + (done?' ('+done+' done)':'') : '';
+}
+
+window.addEventListener('resize', function() { if (curImg) { sizeCanvas(); redraw(); } });
+scoreChange(5);
+</script>
+</body>
+</html>
