@@ -165,41 +165,30 @@ input[type=range]::-webkit-slider-thumb {
 /* ── REFINE MODAL ── */
 #refineModal {
   display: none; position: fixed; inset: 0; z-index: 100;
-  background: rgba(0,0,0,0.92); flex-direction: column;
-  align-items: center; justify-content: flex-start;
-  padding: 16px;
-  padding-top: max(16px, env(safe-area-inset-top));
+  background: #0a0a0a; flex-direction: column;
+  align-items: stretch; justify-content: flex-start;
+  padding: 12px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
 #refineModal.open { display: flex; }
-#refineHeader {
-  width: 100%; display: flex; align-items: center; gap: 10px;
-  margin-bottom: 10px;
-}
+#refineHeader { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 #refineTitle { color: #6ee8a8; font-weight: 700; font-size: 16px; flex: 1; }
-#refineInstr { font-size: 12px; color: #666; margin-bottom: 10px; text-align: center; line-height: 1.5; }
+#refineInstr { font-size: 12px; color: #666; margin-bottom: 8px; text-align: center; line-height: 1.5; }
 #refineCanvasWrap {
-  position: relative; flex: 1; width: 100%;
+  flex: 1; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  overflow: hidden; min-height: 0;
+  background: #111; border-radius: 8px; overflow: hidden;
 }
-#refineCanvas { display: block; touch-action: none; max-width: 100%; max-height: 100%; border-radius: 6px; }
-#maskCanvas   { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); touch-action: none; border-radius: 6px; pointer-events: none; }
-#refineFooter { width: 100%; display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.rfbtn {
-  flex: 1; min-width: 80px; padding: 12px 8px; border-radius: 8px;
-  border: none; font-size: 13px; font-weight: 700; cursor: pointer;
-}
-#rBrushSz { width: 100%; margin: 8px 0 0; accent-color: #f56e6e; }
-.rfbtn:active { opacity: 0.75; }
-.rf-erase  { background: #f56e6e; color: #1e0808; }
-.rf-undo   { background: #2a2a2a; color: #aaa; border: 1px solid #444; }
-.rf-reset  { background: #2a2a2a; color: #aaa; border: 1px solid #444; }
-.rf-done   { background: #6ee8a8; color: #0e0e0e; }
-#brushIndicator {
-  position: absolute; border: 2px solid #f56e6e; border-radius: 50%;
-  pointer-events: none; display: none; z-index: 10;
-  transform: translate(-50%,-50%);
-}
+/* single canvas — image + mask drawn together */
+#refineCanvas { display: block; touch-action: none; border-radius: 6px; }
+#refineFooter { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.rfbtn { flex:1; min-width:70px; padding:12px 6px; border-radius:8px; border:none; font-size:13px; font-weight:700; cursor:pointer; }
+.rfbtn:active { opacity:0.75; }
+.rf-undo { background:#2a2a2a; color:#aaa; border:1px solid #444; }
+.rf-reset{ background:#2a2a2a; color:#aaa; border:1px solid #444; }
+.rf-done { background:#6ee8a8; color:#0e0e0e; }
+#rBrushSz { width:100%; margin:8px 0 0; accent-color:#f56e6e; }
 
 ::-webkit-scrollbar { width: 3px; height: 3px; }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
@@ -300,15 +289,13 @@ input[type=range]::-webkit-slider-thumb {
 <div id="refineModal">
   <div id="refineHeader">
     <div id="refineTitle">✂ Refine Object</div>
-    <div style="font-size:11px;color:#555;font-family:monospace" id="refineStatus">paint to erase background</div>
+    <button onclick="document.getElementById('refineModal').classList.remove('open')" style="background:#2a2a2a;border:1px solid #444;color:#aaa;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer">✕ Cancel</button>
   </div>
-  <div id="refineInstr">Paint over background areas to exclude them from the template. The object stays; painted areas are ignored.</div>
+  <div id="refineInstr">Paint over background to exclude it from the template. Red = excluded.</div>
   <div id="refineCanvasWrap">
     <canvas id="refineCanvas"></canvas>
-    <canvas id="maskCanvas"></canvas>
-    <div id="brushIndicator"></div>
   </div>
-  <input type="range" id="rBrushSz" min="8" max="80" value="24" oninput="updateBrush()">
+  <input type="range" id="rBrushSz" min="8" max="80" value="24" oninput="brushSize=parseInt(this.value)">
   <div id="refineFooter">
     <button class="rfbtn rf-undo"  onclick="undoMask()">↩ Undo</button>
     <button class="rfbtn rf-reset" onclick="resetMask()">Reset</button>
@@ -733,134 +720,137 @@ function fastRegion(d, IW, x, y, w, h) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// REFINE MODAL
+// REFINE MODAL — single canvas draws image + red mask overlay together
 // ═══════════════════════════════════════════════════════════════════════════
-var refineCanvas  = document.getElementById('refineCanvas');
-var maskCanvas    = document.getElementById('maskCanvas');
+var refineCanvas = document.getElementById('refineCanvas');
 var rctx = refineCanvas.getContext('2d');
-var mctx = maskCanvas.getContext('2d');
-var refineMask    = null; // Uint8Array, 1=erased
-var maskHistory   = [];   // for undo
-var rfPainting    = false;
-var brushSize     = 24;
-var brushIndicator= document.getElementById('brushIndicator');
+var refineMask   = null;   // Uint8Array, w*h — 255 = excluded
+var maskHistory  = [];
+var rfPainting   = false;
+var brushSize    = 24;
 var currentRefineBox = null;
+var rfImgData    = null;   // ImageData of the cropped region at native size
 
 function openRefine() {
   if (!userBox || !curImg) return;
-  currentRefineBox = {x:Math.round(userBox.x),y:Math.round(userBox.y),w:Math.round(userBox.w),h:Math.round(userBox.h)};
-  var w=currentRefineBox.w, h=currentRefineBox.h;
+  currentRefineBox = {
+    x: Math.round(userBox.x), y: Math.round(userBox.y),
+    w: Math.round(userBox.w), h: Math.round(userBox.h)
+  };
 
-  // Size refine canvas to fit modal
-  var wrap=document.getElementById('refineCanvasWrap');
-  var maxW=wrap.clientWidth, maxH=wrap.clientHeight||300;
-  var rfScale=Math.min(maxW/w, maxH/h, 3); // zoom in up to 3x
-  refineCanvas.width  = Math.round(w*rfScale);
-  refineCanvas.height = Math.round(h*rfScale);
-  maskCanvas.width    = refineCanvas.width;
-  maskCanvas.height   = refineCanvas.height;
-  maskCanvas.style.width  = refineCanvas.width+'px';
-  maskCanvas.style.height = refineCanvas.height+'px';
-
-  // Draw cropped region
-  rctx.clearRect(0,0,refineCanvas.width,refineCanvas.height);
-  rctx.drawImage(curImg,
-    currentRefineBox.x, currentRefineBox.y, w, h,
-    0, 0, refineCanvas.width, refineCanvas.height);
-
-  // Auto-detect background: run simple center-vs-border analysis
-  // Mark border ring (outer 15%) as initially suggested erased
-  refineMask = new Uint8Array(w*h); // starts all 0 (include)
-  maskHistory = [];
-
-  // Auto-mask: flood fill from corners using color similarity to corner pixels
-  autoMaskBorder(w, h, rfScale);
-
-  renderMask(rfScale);
+  // Open modal first so layout is rendered
   document.getElementById('refineModal').classList.add('open');
+
+  // Wait two frames for layout to settle (one rAF isn't always enough on mobile)
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      var box = currentRefineBox;
+      var w = box.w, h = box.h;
+
+      // Get the cropped pixel data at native image resolution
+      var tmp = document.createElement('canvas');
+      tmp.width = w; tmp.height = h;
+      tmp.getContext('2d').drawImage(curImg, box.x, box.y, w, h, 0, 0, w, h);
+      rfImgData = tmp.getContext('2d').getImageData(0, 0, w, h);
+
+      // Size the refine canvas to fill the wrap area
+      var wrap = document.getElementById('refineCanvasWrap');
+      var maxW = wrap.clientWidth  || window.innerWidth;
+      var maxH = wrap.clientHeight || Math.round(window.innerHeight * 0.5);
+      var sc   = Math.min(maxW / w, maxH / h);
+      sc = Math.max(0.5, Math.min(sc, 5));
+
+      refineCanvas.width  = Math.round(w * sc);
+      refineCanvas.height = Math.round(h * sc);
+
+      // Init mask
+      refineMask  = new Uint8Array(w * h);
+      maskHistory = [];
+      autoMaskBorder(w, h);
+
+      drawRefine();
+    });
+  });
 }
 
-function autoMaskBorder(w, h, rfScale) {
-  // Get pixel data from the cropped region
-  var oc=document.createElement('canvas');
-  oc.width=w; oc.height=h;
-  oc.getContext('2d').drawImage(curImg, currentRefineBox.x, currentRefineBox.y, w, h, 0, 0, w, h);
-  var d=oc.getContext('2d').getImageData(0,0,w,h).data;
+// Draw image + red mask overlay onto the single refine canvas
+function drawRefine() {
+  if (!rfImgData || !currentRefineBox) return;
+  var w = currentRefineBox.w, h = currentRefineBox.h;
+  var cw = refineCanvas.width, ch = refineCanvas.height;
 
-  // Sample 4 corners + 4 edge midpoints as "background color samples"
-  var samples=[];
-  var pts=[
+  // Build combined RGBA: image with red overlay where masked
+  var combined = new ImageData(w, h);
+  var src = rfImgData.data, dst = combined.data;
+  for (var i = 0; i < w * h; i++) {
+    var s = i * 4;
+    if (refineMask[i] === 255) {
+      // Red tint for masked (background) pixels
+      dst[s]   = Math.min(255, src[s]   * 0.4 + 200);
+      dst[s+1] = Math.round(src[s+1] * 0.3);
+      dst[s+2] = Math.round(src[s+2] * 0.3);
+      dst[s+3] = 255;
+    } else {
+      dst[s]=src[s]; dst[s+1]=src[s+1]; dst[s+2]=src[s+2]; dst[s+3]=255;
+    }
+  }
+
+  // Put into temp canvas then scale up
+  var tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  tmp.getContext('2d').putImageData(combined, 0, 0);
+  rctx.clearRect(0, 0, cw, ch);
+  rctx.drawImage(tmp, 0, 0, cw, ch);
+}
+
+function autoMaskBorder(w, h) {
+  var d = rfImgData.data;
+  var samples = [];
+  var pts = [
     [0,0],[w-1,0],[0,h-1],[w-1,h-1],
     [Math.floor(w/2),0],[Math.floor(w/2),h-1],
     [0,Math.floor(h/2)],[w-1,Math.floor(h/2)]
   ];
-  pts.forEach(function(p){
-    var i=(p[1]*w+p[0])*4;
-    samples.push([d[i],d[i+1],d[i+2]]);
+  pts.forEach(function(p) {
+    var i = (p[1]*w + p[0]) * 4;
+    samples.push([d[i], d[i+1], d[i+2]]);
   });
-
-  // For each pixel in border ring (outer 15%), check similarity to any sample
-  var ring=Math.max(2,Math.round(Math.min(w,h)*0.15));
-  for (var py=0;py<h;py++){
-    for(var px=0;px<w;px++){
-      var isBorder=(px<ring||px>=w-ring||py<ring||py>=h-ring);
-      if(!isBorder) continue;
-      var i=(py*w+px)*4;
-      var pr=d[i],pg=d[i+1],pb=d[i+2];
-      // If similar to any sample, mark as background
-      var similar=false;
-      for(var s=0;s<samples.length;s++){
-        var dr=pr-samples[s][0],dg=pg-samples[s][1],db=pb-samples[s][2];
-        if(Math.sqrt(dr*dr+dg*dg+db*db)<55){similar=true;break;}
-      }
-      if(similar) refineMask[py*w+px]=255;
-    }
-  }
-}
-
-function renderMask(rfScale) {
-  var w=currentRefineBox.w, h=currentRefineBox.h;
-  var sc=rfScale||refineCanvas.width/w;
-  mctx.clearRect(0,0,maskCanvas.width,maskCanvas.height);
-  // Draw red overlay where mask=255
-  mctx.fillStyle='rgba(245,80,80,0.55)';
-  for(var py=0;py<h;py++){
-    for(var px=0;px<w;px++){
-      if(refineMask[py*w+px]===255){
-        mctx.fillRect(Math.floor(px*sc),Math.floor(py*sc),Math.ceil(sc)+1,Math.ceil(sc)+1);
+  var ring = Math.max(2, Math.round(Math.min(w,h) * 0.12));
+  for (var py = 0; py < h; py++) {
+    for (var px = 0; px < w; px++) {
+      if (px >= ring && px < w-ring && py >= ring && py < h-ring) continue;
+      var i = (py*w+px)*4;
+      var pr=d[i], pg=d[i+1], pb=d[i+2];
+      for (var s = 0; s < samples.length; s++) {
+        var dr=pr-samples[s][0], dg=pg-samples[s][1], db=pb-samples[s][2];
+        if (Math.sqrt(dr*dr+dg*dg+db*db) < 50) {
+          refineMask[py*w+px] = 255; break;
+        }
       }
     }
   }
 }
 
 function getRefinePt(e) {
-  var rect=refineCanvas.getBoundingClientRect();
-  var src=e.touches?e.touches[0]:e;
-  var cx=src.clientX-rect.left, cy=src.clientY-rect.top;
-  var sc=refineCanvas.width/currentRefineBox.w;
-  return {x:Math.round(cx/sc), y:Math.round(cy/sc), cx:cx, cy:cy};
+  var rect = refineCanvas.getBoundingClientRect();
+  var src  = e.touches ? e.touches[0] : e;
+  var cx   = src.clientX - rect.left;
+  var cy   = src.clientY - rect.top;
+  var sc   = refineCanvas.width / currentRefineBox.w;
+  return { x: Math.round(cx/sc), y: Math.round(cy/sc) };
 }
 
 function paintMask(pt) {
-  var w=currentRefineBox.w, h=currentRefineBox.h;
-  var sc=refineCanvas.width/w;
-  var r=Math.round(brushSize/(sc*0.5));
-  for(var py=Math.max(0,pt.y-r);py<=Math.min(h-1,pt.y+r);py++){
-    for(var px=Math.max(0,pt.x-r);px<=Math.min(w-1,pt.x+r);px++){
-      var dx=px-pt.x,dy=py-pt.y;
-      if(Math.sqrt(dx*dx+dy*dy)<=r) refineMask[py*w+px]=255;
+  var w = currentRefineBox.w, h = currentRefineBox.h;
+  var sc = refineCanvas.width / w;
+  var r  = Math.max(1, Math.round(brushSize / sc));
+  for (var py = Math.max(0,pt.y-r); py <= Math.min(h-1,pt.y+r); py++) {
+    for (var px = Math.max(0,pt.x-r); px <= Math.min(w-1,pt.x+r); px++) {
+      var dx=px-pt.x, dy=py-pt.y;
+      if (Math.sqrt(dx*dx+dy*dy) <= r) refineMask[py*w+px] = 255;
     }
   }
-  renderMask(sc);
-}
-
-function updateBrushIndicator(cx, cy) {
-  brushIndicator.style.display='block';
-  brushIndicator.style.width=brushSize*2+'px';
-  brushIndicator.style.height=brushSize*2+'px';
-  var rect=refineCanvas.getBoundingClientRect();
-  brushIndicator.style.left=(rect.left+cx)+'px';
-  brushIndicator.style.top=(rect.top+cy)+'px';
+  drawRefine();
 }
 
 refineCanvas.addEventListener('mousedown',  rfDown);
@@ -870,43 +860,33 @@ refineCanvas.addEventListener('touchstart', function(e){e.preventDefault();rfDow
 refineCanvas.addEventListener('touchmove',  function(e){e.preventDefault();rfMove(e);},{passive:false});
 refineCanvas.addEventListener('touchend',   function(e){e.preventDefault();rfUp(e);  },{passive:false});
 
-function rfDown(e){
-  rfPainting=true;
-  maskHistory.push(refineMask.slice()); // save for undo
-  if(maskHistory.length>20) maskHistory.shift();
-  var pt=getRefinePt(e); paintMask(pt); updateBrushIndicator(pt.cx,pt.cy);
+function rfDown(e) {
+  rfPainting = true;
+  maskHistory.push(refineMask.slice());
+  if (maskHistory.length > 20) maskHistory.shift();
+  paintMask(getRefinePt(e));
 }
-function rfMove(e){
-  if(!rfPainting) return;
-  var pt=getRefinePt(e); paintMask(pt); updateBrushIndicator(pt.cx,pt.cy);
-}
-function rfUp(){ rfPainting=false; brushIndicator.style.display='none'; }
+function rfMove(e) { if (rfPainting) paintMask(getRefinePt(e)); }
+function rfUp()    { rfPainting = false; }
 
-function undoMask(){
-  if(maskHistory.length===0) return;
-  refineMask=maskHistory.pop();
-  renderMask(refineCanvas.width/currentRefineBox.w);
+function undoMask() {
+  if (!maskHistory.length) return;
+  refineMask = maskHistory.pop();
+  drawRefine();
 }
-function resetMask(){
-  refineMask=new Uint8Array(currentRefineBox.w*currentRefineBox.h);
-  maskHistory=[];
-  renderMask(refineCanvas.width/currentRefineBox.w);
-}
-function updateBrush(){
-  brushSize=parseInt(document.getElementById('rBrushSz').value);
-  brushIndicator.style.width=brushSize*2+'px';
-  brushIndicator.style.height=brushSize*2+'px';
+function resetMask() {
+  refineMask  = new Uint8Array(currentRefineBox.w * currentRefineBox.h);
+  maskHistory = [];
+  drawRefine();
 }
 
-function applyRefine(){
-  // Extract template using current mask
-  var tmpl=extractTmpl(currentRefineBox, refineMask);
-  // Replace or set first template in bank
-  if(tmplBank.length===0) tmplBank.push(tmpl);
-  else tmplBank[0]=tmpl; // refine always updates the seed template
+function applyRefine() {
+  var tmpl = extractTmpl(currentRefineBox, refineMask);
+  if (tmplBank.length === 0) tmplBank.push(tmpl);
+  else tmplBank[0] = tmpl;
   updateTmplBank();
   document.getElementById('refineModal').classList.remove('open');
-  setMsg('Refined! Template updated. Tap "Search →" to begin.','ok');
+  setMsg('Refined! Template updated. Tap "Search →" to begin.', 'ok');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
